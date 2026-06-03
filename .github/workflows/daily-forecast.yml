@@ -1,0 +1,35 @@
+name: Daily Weather Email
+
+on:
+  schedule:
+    # GitHub cron runs in UTC and does NOT adjust for daylight saving.
+    # 6am America/New_York == 10:00 UTC (EDT, summer) or 11:00 UTC (EST, winter).
+    # We fire at BOTH times; forecast_email.py only sends when the local hour
+    # equals SEND_HOUR (6), so exactly one run delivers each day, year-round.
+    - cron: '0 10 * * *'
+    - cron: '0 11 * * *'
+  workflow_dispatch:        # manual "Run workflow" button -> always sends
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Send forecast email
+        env:
+          WB_API_KEY:         ${{ secrets.WB_API_KEY }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          GMAIL_USER:         lbidonofrio@gmail.com
+          MAIL_TO:            "ddonofrio@thecaseygroup.us,stephdonofrio@gmail.com"
+          PLACE:              "Murrells Inlet, SC"
+          LAT:                "33.55"
+          LON:                "-79.04"
+          MODEL:              "wm-5c"
+          SEND_HOUR:          "6"
+          TZ_NAME:            "America/New_York"
+          # Manual runs always send; scheduled runs respect the 6am guard.
+          FORCE_SEND:         ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
+        run: python forecast_email.py

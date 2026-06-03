@@ -1,7 +1,8 @@
 # weather
 
-Emails a 7-day Murrells Inlet forecast every morning at 6am ET to a fixed list
-of recipients. Runs as a scheduled GitHub Action. No server, no laptop required.
+Emails a Murrells Inlet forecast every morning at 6am ET to a fixed list of
+recipients: today hour-by-hour plus a 7-day outlook. Runs as a scheduled GitHub
+Action. No server, no laptop required.
 
 - Data: WindBorne WeatherMesh-5c point forecast (hourly, 168 hours)
 - Send: Gmail SMTP from `lbidonofrio@gmail.com`

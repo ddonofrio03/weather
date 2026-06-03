@@ -86,7 +86,8 @@ def process(data):
         hourly.append({"date": t.strftime("%Y-%m-%d"), "dow": t.strftime("%a"),
                        "dt": t, "tempF": cf(p["temperature_2m"]),
                        "rh": rh(p["temperature_2m"], p["dewpoint_2m"]),
-                       "precip_in": p["precipitation"]/25.4, "wind": spd})
+                       "precip_in": p["precipitation"]/25.4,
+                       "wind": spd, "wdir": comp})
     days = {}
     for h in hourly:
         days.setdefault(h["date"], []).append(h)
@@ -100,10 +101,16 @@ def process(data):
                       "wind": round(max(x["wind"] for x in hs)),
                       "rh": round(sum(x["rh"] for x in hs)/len(hs)),
                       "full": len(hs) >= 24})
-    return daily
+    return hourly, daily
 
-def build_html(daily, init_iso):
+def build_html(daily, hourly, init_iso):
     init = datetime.fromisoformat(init_iso.replace("Z", "+00:00")).astimezone(TZ)
+    now = datetime.now(TZ)
+    floor = now.replace(minute=0, second=0, microsecond=0)
+    today = [h for h in hourly if h["dt"] >= floor and h["dt"].date() == now.date()]
+    if len(today) < 4:                         # late in the day: show next 12 hrs
+        today = [h for h in hourly if h["dt"] >= floor][:12]
+    today = today[:18]
     wk_hi = max(d["hi"] for d in daily); wk_lo = min(d["lo"] for d in daily)
     total = round(sum(d["precip"] for d in daily), 2)
     rows = []
@@ -121,6 +128,38 @@ def build_html(daily, init_iso):
   <td style="padding:10px 12px;border-bottom:1px solid #e7e3da;text-align:right;color:#3b4a5e;">{d['rh']}%</td>
 </tr>''')
     rows = "\n".join(rows)
+
+    # ---- today's hourly block ----
+    hrows = []
+    for i, h in enumerate(today):
+        bg = "#eef4f5" if h["precip_in"] >= 0.01 else ("#ffffff" if i % 2 == 0 else "#faf7f0")
+        rain = f'{h["precip_in"]:.2f}&Prime;' if h["precip_in"] >= 0.005 else "&mdash;"
+        rcol = "#2f6f82" if h["precip_in"] >= 0.005 else "#c4bdae"
+        hrows.append(f'''<tr style="background:{bg};">
+  <td style="padding:7px 12px;border-bottom:1px solid #eee7da;color:#3b4a5e;">{h['dt'].strftime('%-I %p')}</td>
+  <td style="padding:7px 12px;border-bottom:1px solid #eee7da;text-align:right;font-weight:600;color:#c9742a;">{round(h['tempF'])}&deg;</td>
+  <td style="padding:7px 12px;border-bottom:1px solid #eee7da;text-align:right;color:{rcol};">{rain}</td>
+  <td style="padding:7px 12px;border-bottom:1px solid #eee7da;text-align:right;color:#3b4a5e;">{round(h['wind'])} mph <span style="color:#9aa0a6;">{h['wdir']}</span></td>
+  <td style="padding:7px 12px;border-bottom:1px solid #eee7da;text-align:right;color:#3b4a5e;">{round(h['rh'])}%</td>
+</tr>''')
+    hrows = "\n".join(hrows)
+    today_label = today[0]["dt"].strftime("%A, %B %-d") if today else now.strftime("%A, %B %-d")
+    hourly_section = f'''
+  <tr><td style="padding:4px 22px 6px;">
+    <div style="font-size:18px;font-weight:700;color:#16263d;padding:0 4px;">Today, hour by hour</div>
+    <div style="font-size:12px;color:#9aa0a6;padding:2px 4px 10px;">{today_label}</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:13px;">
+      <tr style="background:#1c2d44;">
+        <th style="padding:8px 12px;text-align:left;color:#f4efe6;font-size:11px;letter-spacing:.06em;text-transform:uppercase;">Time</th>
+        <th style="padding:8px 12px;text-align:right;color:#f4efe6;font-size:11px;letter-spacing:.06em;text-transform:uppercase;">Temp</th>
+        <th style="padding:8px 12px;text-align:right;color:#f4efe6;font-size:11px;letter-spacing:.06em;text-transform:uppercase;">Rain</th>
+        <th style="padding:8px 12px;text-align:right;color:#f4efe6;font-size:11px;letter-spacing:.06em;text-transform:uppercase;">Wind</th>
+        <th style="padding:8px 12px;text-align:right;color:#f4efe6;font-size:11px;letter-spacing:.06em;text-transform:uppercase;">Hum</th>
+      </tr>
+      {hrows}
+    </table>
+  </td></tr>'''
+
     return f'''<!doctype html><html><body style="margin:0;background:#f4efe6;padding:24px 0;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4efe6;">
 <tr><td align="center">
@@ -137,7 +176,9 @@ def build_html(daily, init_iso):
       <td style="text-align:center;"><div style="font-size:26px;font-weight:700;color:#16263d;">{total:.2f}&Prime;</div><div style="font-size:11px;color:#9aa0a6;text-transform:uppercase;letter-spacing:.1em;">Total rain</div></td>
     </tr></table>
   </td></tr>
-  <tr><td style="padding:14px 22px 22px;">
+  {hourly_section}
+  <tr><td style="padding:6px 22px 22px;">
+    <div style="font-size:18px;font-weight:700;color:#16263d;padding:0 4px 10px;">7-day outlook</div>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:14px;">
       <tr style="background:#1c2d44;">
         <th style="padding:9px 12px;text-align:left;color:#f4efe6;font-size:11px;letter-spacing:.06em;text-transform:uppercase;">Day</th>
@@ -161,8 +202,8 @@ def main():
         print(f"Local hour {now_local.hour} != SEND_HOUR {SEND_HOUR}; skipping.")
         return
     data = fetch()
-    daily = process(data)
-    html = build_html(daily, data["initialization_time"])
+    hourly, daily = process(data)
+    html = build_html(daily, hourly, data["initialization_time"])
     subj = f"{PLACE} weather \u2014 {now_local.strftime('%a %b %-d')}"
     if DRY:
         open("email.html", "w").write(html)

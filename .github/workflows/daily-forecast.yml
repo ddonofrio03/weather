@@ -2,13 +2,13 @@ name: Daily Weather Email
 
 on:
   schedule:
-    # GitHub cron runs in UTC and does NOT adjust for daylight saving.
-    # 6am America/New_York == 10:00 UTC (EDT, summer) or 11:00 UTC (EST, winter).
-    # We fire at BOTH times; forecast_email.py only sends when the local hour
-    # equals SEND_HOUR (6), so exactly one run delivers each day, year-round.
-    - cron: '0 10 * * *'
-    - cron: '0 11 * * *'
-  workflow_dispatch:        # manual "Run workflow" button -> always sends
+    # Runs once daily at 10:15 UTC = 6:15am ET during EDT (mid-Mar to early Nov).
+    # GitHub cron is UTC and does not shift for daylight saving. When EST begins
+    # in November, change this to '15 11 * * *' to keep it near 6am ET.
+    # A few minutes past the hour on purpose: top-of-hour runs are the most
+    # likely to be delayed or dropped by GitHub.
+    - cron: '15 10 * * *'
+  workflow_dispatch:        # manual "Run workflow" button
 
 jobs:
   send:
@@ -28,8 +28,5 @@ jobs:
           LAT:                "33.55"
           LON:                "-79.04"
           MODEL:              "wm-5c"
-          SEND_HOUR:          "6"
-          TZ_NAME:            "America/New_York"
-          # Manual runs always send; scheduled runs respect the 6am guard.
-          FORCE_SEND:         ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
+          FORCE_SEND:         "1"
         run: python forecast_email.py

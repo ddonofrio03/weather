@@ -74,13 +74,25 @@ def compass(deg):
         return ""
     return DIRS[int((float(deg) + 11.25)//22.5) % 16]
 
+def uv_cell(v):
+    """Return (text, color) for a UV index value, colored by WHO risk band."""
+    if v is None:
+        return "", "#9aa0a6"
+    n = round(v)
+    if n <= 2:    c = "#7a8a7e"   # low
+    elif n <= 5:  c = "#c9a227"   # moderate
+    elif n <= 7:  c = "#c9742a"   # high
+    elif n <= 10: c = "#b03030"   # very high
+    else:         c = "#8e44ad"   # extreme
+    return str(n), c
+
 def fetch():
     params = {
         "latitude": LAT, "longitude": LON,
         "hourly": ("temperature_2m,relative_humidity_2m,precipitation,"
                    "precipitation_probability,weather_code,cloud_cover,"
-                   "wind_speed_10m,wind_direction_10m"),
-        "daily": ("weather_code,temperature_2m_max,temperature_2m_min,"
+                   "uv_index,wind_speed_10m,wind_direction_10m"),
+        "daily": ("weather_code,temperature_2m_max,temperature_2m_min,uv_index_max,"
                   "precipitation_sum,precipitation_probability_max,"
                   "wind_speed_10m_max,wind_direction_10m_dominant"),
         "temperature_unit": "fahrenheit",
@@ -125,6 +137,7 @@ def process(data):
             "pop": H["precipitation_probability"][i],
             "code": H["weather_code"][i],
             "cloud": H["cloud_cover"][i],
+            "uv": H["uv_index"][i],
             "wind": H["wind_speed_10m"][i] or 0.0,
             "wdir": compass(H["wind_direction_10m"][i]),
         })
@@ -141,6 +154,7 @@ def process(data):
         daily.append({
             "date": ds, "dow": dt.strftime("%a"), "dt": dt,
             "code": D["weather_code"][i],
+            "uv": D["uv_index_max"][i],
             "hi": round(D["temperature_2m_max"][i]),
             "lo": round(D["temperature_2m_min"][i]),
             "precip": round(D["precipitation_sum"][i] or 0.0, 2),
@@ -160,6 +174,11 @@ def build_html(daily, hourly):
     wk_hi = max(d["hi"] for d in daily); wk_lo = min(d["lo"] for d in daily)
     total = round(sum(d["precip"] for d in daily), 2)
 
+    TH = ('padding:9px 9px;color:#f4efe6;font-size:11px;letter-spacing:.04em;'
+          'text-transform:uppercase;')
+    HD_TH = ('padding:8px 8px;color:#f4efe6;font-size:11px;letter-spacing:.04em;'
+             'text-transform:uppercase;')
+
     # ---- 7-day rows ----
     rows = []
     for d in daily:
@@ -168,14 +187,17 @@ def build_html(daily, hourly):
         rain = f'{d["precip"]:.2f}&Prime;' if wet else '<span style="color:#c4bdae;">&middot;</span>'
         rcol = "#2f6f82" if wet else "#9aa0a6"
         sky = code_label(d["code"])
+        uvt, uvc = uv_cell(d["uv"])
         hum = f'{d["rh"]}%' if d["rh"] is not None else ""
+        td = "padding:10px 9px;border-bottom:1px solid #e7e3da;"
         rows.append(f'''<tr style="background:{bg};">
-  <td style="padding:10px 12px;border-bottom:1px solid #e7e3da;font-weight:600;color:#16263d;white-space:nowrap;">{d['dow']} <span style="color:#9aa0a6;font-weight:400;">{d['dt'].strftime('%b %-d')}</span></td>
-  <td style="padding:10px 12px;border-bottom:1px solid #e7e3da;color:#3b4a5e;">{sky}</td>
-  <td style="padding:10px 12px;border-bottom:1px solid #e7e3da;text-align:right;white-space:nowrap;"><b style="color:#c9742a;">{d['hi']}&deg;</b> <span style="color:#9aa0a6;">/ {d['lo']}&deg;</span></td>
-  <td style="padding:10px 12px;border-bottom:1px solid #e7e3da;text-align:right;color:{rcol};font-weight:600;">{rain}</td>
-  <td style="padding:10px 12px;border-bottom:1px solid #e7e3da;text-align:right;color:#3b4a5e;white-space:nowrap;">{d['wind']} mph</td>
-  <td style="padding:10px 12px;border-bottom:1px solid #e7e3da;text-align:right;color:#3b4a5e;">{hum}</td>
+  <td style="{td}font-weight:600;color:#16263d;white-space:nowrap;">{d['dow']} <span style="color:#9aa0a6;font-weight:400;">{d['dt'].strftime('%b %-d')}</span></td>
+  <td style="{td}color:#3b4a5e;">{sky}</td>
+  <td style="{td}text-align:right;white-space:nowrap;"><b style="color:#c9742a;">{d['hi']}&deg;</b> <span style="color:#9aa0a6;">/ {d['lo']}&deg;</span></td>
+  <td style="{td}text-align:right;color:{rcol};font-weight:600;">{rain}</td>
+  <td style="{td}text-align:right;color:{uvc};font-weight:700;">{uvt}</td>
+  <td style="{td}text-align:right;color:#3b4a5e;white-space:nowrap;">{d['wind']} mph</td>
+  <td style="{td}text-align:right;color:#3b4a5e;">{hum}</td>
 </tr>''')
     rows = "\n".join(rows)
 
@@ -187,14 +209,17 @@ def build_html(daily, hourly):
         rain = f'{p:.2f}&Prime;' if p >= 0.005 else '<span style="color:#c4bdae;">&middot;</span>'
         rcol = "#2f6f82" if p >= 0.005 else "#c4bdae"
         sky = code_label(h["code"])
+        uvt, uvc = uv_cell(h["uv"])
         hum = f'{round(h["rh"])}%' if h["rh"] is not None else ""
+        td = "padding:7px 8px;border-bottom:1px solid #eee7da;"
         hrows.append(f'''<tr style="background:{bg};">
-  <td style="padding:7px 10px;border-bottom:1px solid #eee7da;color:#3b4a5e;white-space:nowrap;">{h['dt'].strftime('%-I %p')}</td>
-  <td style="padding:7px 10px;border-bottom:1px solid #eee7da;color:#3b4a5e;">{sky}</td>
-  <td style="padding:7px 10px;border-bottom:1px solid #eee7da;text-align:right;font-weight:600;color:#c9742a;">{round(h['tempF'])}&deg;</td>
-  <td style="padding:7px 10px;border-bottom:1px solid #eee7da;text-align:right;color:{rcol};">{rain}</td>
-  <td style="padding:7px 10px;border-bottom:1px solid #eee7da;text-align:right;color:#3b4a5e;white-space:nowrap;">{round(h['wind'])} <span style="color:#9aa0a6;">{h['wdir']}</span></td>
-  <td style="padding:7px 10px;border-bottom:1px solid #eee7da;text-align:right;color:#3b4a5e;">{hum}</td>
+  <td style="{td}color:#3b4a5e;white-space:nowrap;">{h['dt'].strftime('%-I %p')}</td>
+  <td style="{td}color:#3b4a5e;">{sky}</td>
+  <td style="{td}text-align:right;font-weight:600;color:#c9742a;">{round(h['tempF'])}&deg;</td>
+  <td style="{td}text-align:right;color:{rcol};">{rain}</td>
+  <td style="{td}text-align:right;color:{uvc};font-weight:700;">{uvt}</td>
+  <td style="{td}text-align:right;color:#3b4a5e;white-space:nowrap;">{round(h['wind'])} <span style="color:#9aa0a6;">{h['wdir']}</span></td>
+  <td style="{td}text-align:right;color:#3b4a5e;">{hum}</td>
 </tr>''')
     hrows = "\n".join(hrows)
     today_label = today[0]["dt"].strftime("%A, %B %-d") if today else now.strftime("%A, %B %-d")
@@ -220,12 +245,13 @@ def build_html(daily, hourly):
     <div style="font-size:12px;color:#9aa0a6;padding:2px 4px 10px;">{today_label}</div>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:13px;">
       <tr style="background:#1c2d44;">
-        <th style="padding:8px 10px;text-align:left;color:#f4efe6;font-size:11px;letter-spacing:.05em;text-transform:uppercase;">Time</th>
-        <th style="padding:8px 10px;text-align:left;color:#f4efe6;font-size:11px;letter-spacing:.05em;text-transform:uppercase;">Sky</th>
-        <th style="padding:8px 10px;text-align:right;color:#f4efe6;font-size:11px;letter-spacing:.05em;text-transform:uppercase;">Temp</th>
-        <th style="padding:8px 10px;text-align:right;color:#f4efe6;font-size:11px;letter-spacing:.05em;text-transform:uppercase;">Rain</th>
-        <th style="padding:8px 10px;text-align:right;color:#f4efe6;font-size:11px;letter-spacing:.05em;text-transform:uppercase;">Wind</th>
-        <th style="padding:8px 10px;text-align:right;color:#f4efe6;font-size:11px;letter-spacing:.05em;text-transform:uppercase;">Hum</th>
+        <th style="{HD_TH}text-align:left;">Time</th>
+        <th style="{HD_TH}text-align:left;">Sky</th>
+        <th style="{HD_TH}text-align:right;">Temp</th>
+        <th style="{HD_TH}text-align:right;">Rain</th>
+        <th style="{HD_TH}text-align:right;">UV</th>
+        <th style="{HD_TH}text-align:right;">Wind</th>
+        <th style="{HD_TH}text-align:right;">Hum</th>
       </tr>
       {hrows}
     </table>
@@ -234,18 +260,19 @@ def build_html(daily, hourly):
     <div style="font-size:18px;font-weight:700;color:#16263d;padding:0 4px 10px;">7-day outlook</div>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:14px;">
       <tr style="background:#1c2d44;">
-        <th style="padding:9px 12px;text-align:left;color:#f4efe6;font-size:11px;letter-spacing:.05em;text-transform:uppercase;">Day</th>
-        <th style="padding:9px 12px;text-align:left;color:#f4efe6;font-size:11px;letter-spacing:.05em;text-transform:uppercase;">Sky</th>
-        <th style="padding:9px 12px;text-align:right;color:#f4efe6;font-size:11px;letter-spacing:.05em;text-transform:uppercase;">Hi / Lo</th>
-        <th style="padding:9px 12px;text-align:right;color:#f4efe6;font-size:11px;letter-spacing:.05em;text-transform:uppercase;">Rain</th>
-        <th style="padding:9px 12px;text-align:right;color:#f4efe6;font-size:11px;letter-spacing:.05em;text-transform:uppercase;">Wind</th>
-        <th style="padding:9px 12px;text-align:right;color:#f4efe6;font-size:11px;letter-spacing:.05em;text-transform:uppercase;">Hum</th>
+        <th style="{TH}text-align:left;">Day</th>
+        <th style="{TH}text-align:left;">Sky</th>
+        <th style="{TH}text-align:right;">Hi / Lo</th>
+        <th style="{TH}text-align:right;">Rain</th>
+        <th style="{TH}text-align:right;">UV</th>
+        <th style="{TH}text-align:right;">Wind</th>
+        <th style="{TH}text-align:right;">Hum</th>
       </tr>
       {rows}
     </table>
   </td></tr>
   <tr><td style="padding:0 26px 22px;color:#9aa0a6;font-size:11px;line-height:1.6;">
-    Temperatures in &deg;F, rain in inches, wind in mph. Sky shows each hour's condition and the dominant condition for each day. Generated automatically. Weather data by <a href="https://open-meteo.com" style="color:#2f6f82;text-decoration:none;">Open-Meteo.com</a> (CC BY 4.0).
+    Temperatures in &deg;F, rain in inches, wind in mph. UV is the index value (peak for the day in the 7-day table), colored by risk: green low, gold moderate, orange high, red very high, violet extreme. Sky shows each hour's condition and the dominant condition per day. Generated automatically. Weather data by <a href="https://open-meteo.com" style="color:#2f6f82;text-decoration:none;">Open-Meteo.com</a> (CC BY 4.0).
   </td></tr>
 </table>
 </td></tr></table></body></html>'''

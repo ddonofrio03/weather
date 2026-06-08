@@ -2,13 +2,21 @@ name: Daily Weather Email
 
 on:
   schedule:
-    # Runs once daily at 10:15 UTC = 6:15am ET during EDT (mid-Mar to early Nov).
-    # GitHub cron is UTC and does not shift for daylight saving. When EST begins
-    # in November, change this to '15 11 * * *' to keep it near 6am ET.
-    # A few minutes past the hour on purpose: top-of-hour runs are the most
-    # likely to be delayed or dropped by GitHub.
+    # GitHub cron is UTC and does NOT shift for daylight saving.
+    # These three are ~6:15, 7:15, 8:15am ET during EDT (mid-Mar to early Nov).
+    # When EST begins in early November, bump each hour by 1 (11/12/13) to stay near morning ET.
+    # Three shots because GitHub scheduled runs are best-effort and often delayed or dropped.
+    # The dedupe step below means only the first run that actually fires each day sends;
+    # the later ones see the marker and skip, so you never get more than one email.
     - cron: '15 10 * * *'
-  workflow_dispatch:        # manual "Run workflow" button
+    - cron: '15 11 * * *'
+    - cron: '15 12 * * *'
+  workflow_dispatch:        # manual "Run workflow" button (always sends)
+
+# Keep overlapping runs from sending twice if GitHub bunches them together.
+concurrency:
+  group: daily-weather-email
+  cancel-in-progress: false
 
 jobs:
   send:
@@ -18,15 +26,28 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Today's date in ET
+        id: d
+        run: echo "today=$(TZ=America/New_York date +%F)" >> "$GITHUB_OUTPUT"
+
+      - name: Has today already sent?
+        id: marker
+        uses: actions/cache@v4
+        with:
+          path: .sent
+          key: sent-${{ steps.d.outputs.today }}
+
       - name: Send forecast email
+        if: steps.marker.outputs.cache-hit != 'true' || github.event_name == 'workflow_dispatch'
         env:
-          WB_API_KEY:         ${{ secrets.WB_API_KEY }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           GMAIL_USER:         lbidonofrio@gmail.com
           MAIL_TO:            "ddonofrio@thecaseygroup.us,stephdonofrio@gmail.com"
           PLACE:              "Murrells Inlet, SC"
           LAT:                "33.55"
           LON:                "-79.04"
-          MODEL:              "wm-5c"
           FORCE_SEND:         "1"
-        run: python forecast_email.py
+        run: |
+          python forecast_email.py
+          mkdir -p .sent && date -u > .sent/at

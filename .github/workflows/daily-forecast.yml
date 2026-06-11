@@ -1,8 +1,11 @@
 name: Daily Weather Email
 
+# Triggered every morning at 6:15 AM Eastern by cron-job.org calling the
+# GitHub API (workflow_dispatch). GitHub's own cron scheduler is NOT used:
+# it proved unreliable (runs delayed hours or dropped entirely).
+# The manual "Run workflow" button in the Actions tab also works any time.
+
 on:
-  schedule:
-    - cron: '15 10 * * *'   # ~6:15am ET during EDT; change to '15 11 * * *' for EST in November
   workflow_dispatch:
 
 jobs:
